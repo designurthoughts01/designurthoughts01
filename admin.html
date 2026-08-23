@@ -50,7 +50,7 @@
   header .inner{max-width:1200px; margin:0 auto; padding:0 28px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;}
   .brand{font-family:'Fraunces',serif; font-size:18px; display:flex; align-items:center; gap:10px;}
   .brand svg{width:16px; height:16px;}
-  .tabs{display:flex; gap:6px;}
+  .tabs{display:flex; gap:6px; flex-wrap:wrap;}
   .tabs button{background:none; border:1px solid transparent; color:var(--ivory-dim); font-size:12.5px; text-transform:uppercase; letter-spacing:.06em; font-weight:700; padding:9px 16px; border-radius:999px; transition:all .2s ease;}
   .tabs button.active{background:var(--gold); color:#1A1305;}
   .tabs button:not(.active):hover{border-color:var(--line); color:var(--ivory);}
@@ -122,6 +122,7 @@
       </div>
       <div class="tabs">
         <button class="active" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
+        <button data-tab="categories" onclick="switchTab('categories')">Categories</button>
         <button data-tab="products" onclick="switchTab('products')">Products</button>
         <button data-tab="orders" onclick="switchTab('orders')">Orders</button>
         <button data-tab="customers" onclick="switchTab('customers')">Customers</button>
@@ -147,6 +148,17 @@
       <div class="table-wrap"><table>
         <thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th><th>Date</th></tr></thead>
         <tbody id="recentOrdersBody"></tbody>
+      </table></div>
+    </section>
+
+    <section class="panel" id="panel-categories">
+      <div class="panel-head">
+        <div><h2>Categories</h2><p>These appear as sections on your storefront, in the order you create them.</p></div>
+        <button class="btn btn-primary" onclick="openCategoryForm()">+ Add Category</button>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Name</th><th>Description</th><th>Products</th><th></th></tr></thead>
+        <tbody id="categoriesBody"></tbody>
       </table></div>
     </section>
 
@@ -182,6 +194,8 @@
       <div style="max-width:460px;">
         <div id="settingsMsg" class="form-msg"></div>
         <div class="field"><label>Business Name</label><input type="text" id="setBusinessName"></div>
+        <div class="field"><label>Business Alias (shown as "also known as")</label><input type="text" id="setBusinessAlias"></div>
+        <div class="field"><label>Founder / Resin Artist Name</label><input type="text" id="setFounderName"></div>
         <div class="field"><label>Instagram Handle (no @)</label><input type="text" id="setInstagram"></div>
         <div class="field"><label>WhatsApp Business Number (with country code, digits only)</label><input type="text" id="setWhatsapp" placeholder="e.g. 91XXXXXXXXXX"></div>
         <button class="btn btn-primary" onclick="saveSettings()">Save Changes</button>
@@ -196,6 +210,17 @@
   </main>
 </div>
 
+<div class="overlay" id="categoryOverlay">
+  <div class="modal">
+    <button class="modal-close" onclick="closeCategoryForm()">&times;</button>
+    <h3 id="categoryFormTitle">Add Category</h3>
+    <input type="hidden" id="catId">
+    <div class="field"><label>Category Name</label><input type="text" id="catName" placeholder="e.g. Coasters"></div>
+    <div class="field"><label>Short Description (shown under the heading on your storefront)</label><textarea id="catDesc" rows="2"></textarea></div>
+    <button class="btn btn-primary btn-block" onclick="saveCategory()">Save Category</button>
+  </div>
+</div>
+
 <div class="overlay" id="productOverlay">
   <div class="modal">
     <button class="modal-close" onclick="closeProductForm()">&times;</button>
@@ -204,13 +229,7 @@
     <div class="field"><label>Product Name</label><input type="text" id="prodName"></div>
     <div class="grid2">
       <div class="field"><label>Category</label>
-        <select id="prodCategory">
-          <option>Keychains</option>
-          <option>Photo Frames</option>
-          <option>Nameplates</option>
-          <option>Bandanwar</option>
-          <option>Car Dashboards</option>
-        </select>
+        <select id="prodCategory"></select>
       </div>
       <div class="field"><label>Price (₹)</label><input type="number" id="prodPrice" min="0"></div>
     </div>
@@ -253,19 +272,28 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 
 const DEFAULT_SETTINGS = {
-  businessName: 'Handmade Decor by Sapna',
+  businessName: 'DESIGN_UR_THOUGHT_01',
+  businessAlias: 'Handmade Decor by Sapna',
+  founderName: 'Sapna Jain (Founder/Owner)',
   instagram: 'design_ur_thoughts_01',
   whatsappAdmin: '910000000000'
 };
 const STATUSES = ['New','Confirmed','Shipped','Delivered','Cancelled'];
+const DEFAULT_CATEGORIES = [
+  {name:'Keychains', description:'Everyday resin keychains — florals, initials, glitter pours and mini charms.'},
+  {name:'Photo Frames', description:'Resin-edged photo frames — table-top and wall-mount, with floral or geode borders.'},
+  {name:'Nameplates', description:'Custom door and desk nameplates — family names, house numbers, office plates.'},
+  {name:'Bandanwar', description:'Resin door-hangings for festivals and everyday — mango leaf, bell, and floral styles.'},
+  {name:'Car Dashboards', description:'Mini resin idols and dashboard art, weighted and finished for daily drives.'}
+];
 
 let SETTINGS = DEFAULT_SETTINGS;
 let PRODUCTS = [];
 let ORDERS = [];
 let CUSTOMERS = [];
+let CATEGORIES = [];
 
 function money(n){ return '₹' + Number(n||0).toLocaleString('en-IN'); }
-function uid(prefix){ return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fmtDate(iso){ try{ return new Date(iso).toLocaleDateString('en-IN', {day:'numeric', month:'short', year:'numeric'}); }catch(e){ return iso; } }
 
@@ -317,23 +345,37 @@ async function fetchSettings(){
     return snap.exists() ? {...DEFAULT_SETTINGS, ...snap.data()} : DEFAULT_SETTINGS;
   }catch(e){ console.error(e); return DEFAULT_SETTINGS; }
 }
-async function fetchCollection(name){
+async function fetchCollectionData(name){
   try{
     const snap = await getDocs(collection(db,name));
     return snap.docs.map(d => ({id:d.id, ...d.data()}));
   }catch(e){ console.error(e); return []; }
 }
+async function ensureDefaultCategories(){
+  const existing = await fetchCollectionData('categories');
+  if(existing.length > 0) return existing;
+  for(const c of DEFAULT_CATEGORIES){
+    await addDoc(collection(db,'categories'), {...c, createdAt: new Date().toISOString()});
+  }
+  return await fetchCollectionData('categories');
+}
 
 async function boot(){
   SETTINGS = await fetchSettings();
-  PRODUCTS = await fetchCollection('products');
-  ORDERS = await fetchCollection('orders');
-  CUSTOMERS = await fetchCollection('customers');
+  CATEGORIES = await ensureDefaultCategories();
+  CATEGORIES.sort((a,b) => new Date(a.createdAt||0) - new Date(b.createdAt||0));
+  PRODUCTS = await fetchCollectionData('products');
+  ORDERS = await fetchCollectionData('orders');
+  CUSTOMERS = await fetchCollectionData('customers');
   document.getElementById('brandNameLabel').textContent = SETTINGS.businessName;
   document.getElementById('setBusinessName').value = SETTINGS.businessName;
+  document.getElementById('setBusinessAlias').value = SETTINGS.businessAlias;
+  document.getElementById('setFounderName').value = SETTINGS.founderName;
   document.getElementById('setInstagram').value = SETTINGS.instagram;
   document.getElementById('setWhatsapp').value = SETTINGS.whatsappAdmin;
   renderDashboard();
+  renderCategoriesTable();
+  populateCategorySelect();
   renderProductsTable();
   renderOrdersTable();
   renderCustomersTable();
@@ -368,6 +410,103 @@ function renderDashboard(){
   `).join('');
 }
 
+/* ---------------- Categories ---------------- */
+function renderCategoriesTable(){
+  const body = document.getElementById('categoriesBody');
+  if(CATEGORIES.length === 0){
+    body.innerHTML = '<tr><td colspan="4" class="empty-state">No categories yet — click "Add Category" to create your first one.</td></tr>';
+    return;
+  }
+  body.innerHTML = CATEGORIES.map(c => {
+    const count = PRODUCTS.filter(p => p.category === c.name).length;
+    return `
+    <tr>
+      <td>${escapeHtml(c.name)}</td>
+      <td class="muted">${escapeHtml((c.description||'').slice(0,60))}</td>
+      <td>${count}</td>
+      <td><div class="row-actions">
+        <button class="btn btn-ghost btn-sm" onclick="openCategoryForm('${c.id}')">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteCategory('${c.id}')">Delete</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+function openCategoryForm(id){
+  const overlay = document.getElementById('categoryOverlay');
+  document.getElementById('categoryFormTitle').textContent = id ? 'Edit Category' : 'Add Category';
+  if(id){
+    const c = CATEGORIES.find(x => x.id === id);
+    document.getElementById('catId').value = c.id;
+    document.getElementById('catName').value = c.name;
+    document.getElementById('catDesc').value = c.description || '';
+  }else{
+    document.getElementById('catId').value = '';
+    document.getElementById('catName').value = '';
+    document.getElementById('catDesc').value = '';
+  }
+  overlay.classList.add('show');
+}
+function closeCategoryForm(){ document.getElementById('categoryOverlay').classList.remove('show'); }
+async function saveCategory(){
+  const id = document.getElementById('catId').value;
+  const name = document.getElementById('catName').value.trim();
+  const description = document.getElementById('catDesc').value.trim();
+  if(!name){ alert('Category name is required.'); return; }
+  if(CATEGORIES.some(c => c.name === name && c.id !== id)){ alert('A category with this name already exists.'); return; }
+
+  try{
+    if(id){
+      const existing = CATEGORIES.find(c => c.id === id);
+      const oldName = existing.name;
+      await updateDoc(doc(db,'categories',id), { name, description });
+      existing.name = name; existing.description = description;
+      if(oldName !== name){
+        const affected = PRODUCTS.filter(p => p.category === oldName);
+        for(const p of affected){
+          await updateDoc(doc(db,'products', p.id), { category: name });
+          p.category = name;
+        }
+      }
+    }else{
+      const newCat = { name, description, createdAt: new Date().toISOString() };
+      const ref = await addDoc(collection(db,'categories'), newCat);
+      CATEGORIES.push({ id: ref.id, ...newCat });
+    }
+    renderCategoriesTable();
+    populateCategorySelect();
+    renderProductsTable();
+    closeCategoryForm();
+  }catch(e){
+    console.error(e);
+    alert('Could not save the category — please try again.');
+  }
+}
+async function deleteCategory(id){
+  const c = CATEGORIES.find(x => x.id === id);
+  if(!c) return;
+  const count = PRODUCTS.filter(p => p.category === c.name).length;
+  if(count > 0){
+    alert(`"${c.name}" has ${count} product(s) in it. Move or delete those products first, then delete the category.`);
+    return;
+  }
+  if(!confirm(`Delete the category "${c.name}"? This cannot be undone.`)) return;
+  try{
+    await deleteDoc(doc(db,'categories',id));
+    CATEGORIES = CATEGORIES.filter(x => x.id !== id);
+    renderCategoriesTable();
+    populateCategorySelect();
+  }catch(e){ console.error(e); alert('Could not delete the category — please try again.'); }
+}
+
+/* ---------------- Products ---------------- */
+function populateCategorySelect(){
+  const sel = document.getElementById('prodCategory');
+  if(CATEGORIES.length === 0){
+    sel.innerHTML = '<option value="">Add a category first</option>';
+    return;
+  }
+  sel.innerHTML = CATEGORIES.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
+}
 function renderProductsTable(){
   const body = document.getElementById('productsBody');
   if(PRODUCTS.length === 0){
@@ -389,8 +528,10 @@ function renderProductsTable(){
   `).join('');
 }
 function openProductForm(id){
+  if(CATEGORIES.length === 0){ alert('Add a category first, then add products to it.'); return; }
   const overlay = document.getElementById('productOverlay');
   document.getElementById('productFormTitle').textContent = id ? 'Edit Product' : 'Add Product';
+  populateCategorySelect();
   if(id){
     const p = PRODUCTS.find(x => x.id === id);
     document.getElementById('prodId').value = p.id;
@@ -403,7 +544,6 @@ function openProductForm(id){
   }else{
     document.getElementById('prodId').value = '';
     document.getElementById('prodName').value = '';
-    document.getElementById('prodCategory').value = 'Keychains';
     document.getElementById('prodPrice').value = '';
     document.getElementById('prodDesc').value = '';
     document.getElementById('prodImage').value = '';
@@ -420,7 +560,7 @@ async function saveProduct(){
   const description = document.getElementById('prodDesc').value.trim();
   const image = document.getElementById('prodImage').value.trim();
   const inStock = document.getElementById('prodStock').value === 'true';
-  if(!name || !price){ alert('Product name and price are required.'); return; }
+  if(!name || !price || !category){ alert('Product name, category and price are required.'); return; }
 
   try{
     if(id){
@@ -433,6 +573,7 @@ async function saveProduct(){
       PRODUCTS.push({ id: ref.id, ...newProd });
     }
     renderProductsTable();
+    renderCategoriesTable();
     renderDashboard();
     closeProductForm();
   }catch(e){
@@ -446,10 +587,12 @@ async function deleteProduct(id){
     await deleteDoc(doc(db,'products',id));
     PRODUCTS = PRODUCTS.filter(p => p.id !== id);
     renderProductsTable();
+    renderCategoriesTable();
     renderDashboard();
   }catch(e){ console.error(e); alert('Could not delete the product — please try again.'); }
 }
 
+/* ---------------- Orders ---------------- */
 function renderOrdersTable(){
   const body = document.getElementById('ordersBody');
   if(ORDERS.length === 0){
@@ -503,6 +646,7 @@ function viewOrder(id){
   document.getElementById('orderOverlay').classList.add('show');
 }
 
+/* ---------------- Customers ---------------- */
 function renderCustomersTable(){
   const body = document.getElementById('customersBody');
   if(CUSTOMERS.length === 0){
@@ -522,8 +666,11 @@ function renderCustomersTable(){
   }).join('');
 }
 
+/* ---------------- Settings ---------------- */
 async function saveSettings(){
   SETTINGS.businessName = document.getElementById('setBusinessName').value.trim() || SETTINGS.businessName;
+  SETTINGS.businessAlias = document.getElementById('setBusinessAlias').value.trim() || SETTINGS.businessAlias;
+  SETTINGS.founderName = document.getElementById('setFounderName').value.trim() || SETTINGS.founderName;
   SETTINGS.instagram = document.getElementById('setInstagram').value.trim() || SETTINGS.instagram;
   SETTINGS.whatsappAdmin = document.getElementById('setWhatsapp').value.trim() || SETTINGS.whatsappAdmin;
   const msg = document.getElementById('settingsMsg');
@@ -540,12 +687,13 @@ async function saveSettings(){
   setTimeout(()=>{ msg.className = 'form-msg'; }, 2500);
 }
 
+document.getElementById('categoryOverlay').addEventListener('click', e => { if(e.target.id === 'categoryOverlay') closeCategoryForm(); });
 document.getElementById('productOverlay').addEventListener('click', e => { if(e.target.id === 'productOverlay') closeProductForm(); });
 document.getElementById('orderOverlay').addEventListener('click', e => { if(e.target.id === 'orderOverlay') document.getElementById('orderOverlay').classList.remove('show'); });
 
-/* Expose functions used by inline HTML handlers — module scripts don't leak to window automatically */
 Object.assign(window, {
   tryLogin, sendReset, doLogout, switchTab,
+  openCategoryForm, closeCategoryForm, saveCategory, deleteCategory,
   openProductForm, closeProductForm, saveProduct, deleteProduct,
   updateOrderStatus, viewOrder, saveSettings
 });
