@@ -1,0 +1,32 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Product catalog — anyone can browse, only the signed-in admin can edit
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Business settings (name, WhatsApp number, Instagram) — public read, admin-only write
+    match /config/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Orders — anyone can place one (guest checkout), only admin can list/read/update them
+    match /orders/{orderId} {
+      allow create: if true;
+      allow read, update, delete: if request.auth != null;
+    }
+
+    // Customer accounts — phone number is the document ID
+    // "get" (fetch by known phone) is allowed so login/registration checks work without an admin session
+    // "list" (dump the whole collection) is admin-only so phone numbers can't be scraped in bulk
+    match /customers/{phone} {
+      allow get: if true;
+      allow create: if true;
+      allow list, update, delete: if request.auth != null;
+    }
+  }
+}
