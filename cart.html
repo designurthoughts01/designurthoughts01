@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cart | DESIGN_UR_THOUGHTS_01</title>
+<style>
+:root{--ink:#32283a;--muted:#746a78;--cream:#fffaf6;--line:#eadfe4;--gold:#b48a3b;--gold2:#d8ad63;--shadow:0 20px 55px #49324b18}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;font-family:Manrope,sans-serif;color:var(--ink);background:var(--cream)}
+body{min-height:100vh;display:flex;flex-direction:column}
+.wrap{width:min(1100px,calc(100% - 36px));margin:auto}
+.content{flex:1;padding:42px 0 70px}
+.page-head{margin-bottom:24px}
+.page-head h1{font:600 52px/1 'Cormorant Garamond',serif;margin:6px 0}
+.muted{color:var(--muted);font-size:12px}
+.cart-layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:20px}
+.card{background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow)}
+.cart-items{overflow:hidden}
+.cart-item{display:grid;grid-template-columns:90px minmax(0,1fr) auto;gap:16px;padding:18px;border-bottom:1px solid var(--line);align-items:center}
+.cart-item:last-child{border-bottom:0}
+.item-image{width:90px;height:90px;border-radius:8px;overflow:hidden;background:linear-gradient(135deg,#fff0f3,#eefbf7,#f4effd)}
+.item-image img{width:100%;height:100%;object-fit:cover}
+.item-name{font:600 23px/1.1 'Cormorant Garamond',serif;margin:0 0 6px}
+.item-options{font-size:11px;color:var(--muted);line-height:1.5}
+.item-price{font-weight:800;white-space:nowrap}
+.qty{display:flex;align-items:center;gap:7px;margin-top:10px}
+.qty button{width:29px;height:29px;border:1px solid var(--line);border-radius:50%;background:#fff;color:var(--ink);cursor:pointer}
+.qty input{width:48px;padding:7px;border:1px solid var(--line);border-radius:7px;text-align:center;font:600 12px Manrope}
+.remove{margin-top:7px;padding:0;border:0;background:none;color:#a95757;font:600 10px Manrope;cursor:pointer}
+.summary{padding:24px;height:max-content;position:sticky;top:135px}
+.summary h2{font:600 31px/1 'Cormorant Garamond',serif;margin:0 0 18px}
+.summary-row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;font-size:13px}
+.summary-total{border-top:1px solid var(--line);margin-top:8px;padding-top:15px;font-size:18px;font-weight:800}
+.btn{display:block;width:100%;padding:13px 16px;border:1px solid var(--line);border-radius:99px;background:#fff;color:var(--ink);font:800 12px Manrope;text-align:center;text-decoration:none;cursor:pointer;margin-top:11px}
+.btn.primary{border:0;background:linear-gradient(100deg,var(--gold),var(--gold2));color:#fff}
+.empty{padding:65px 24px;text-align:center}
+.empty h2{font:600 38px 'Cormorant Garamond',serif;margin:0 0 7px}
+@media(max-width:760px){.cart-layout{grid-template-columns:1fr}.summary{position:static}.page-head h1{font-size:44px}}
+@media(max-width:520px){.wrap{width:min(100% - 24px,1100px)}.cart-item{grid-template-columns:68px minmax(0,1fr)}.item-image{width:68px;height:68px}.item-price{grid-column:2}.item-name{font-size:20px}}
+</style>
+<script type="module">import './site-shell.js';</script>
+</head>
+<body>
+<main class="content">
+<div class="wrap">
+<div class="page-head">
+<div class="muted">YOUR SELECTION</div>
+<h1>Your Cart</h1>
+<div class="muted">Review your handcrafted pieces before checkout.</div>
+</div>
+<div id="cartApp"></div>
+</div>
+</main>
+
+<script>
+const CART_KEY='designUrThoughtsCart';
+
+function getCart(){
+  try{
+    const value=JSON.parse(localStorage.getItem(CART_KEY)||'[]');
+    return Array.isArray(value)?value:[];
+  }catch(e){
+    return [];
+  }
+}
+function saveCart(cart){
+  localStorage.setItem(CART_KEY,JSON.stringify(cart));
+}
+function money(value){
+  return '₹'+Number(value||0).toLocaleString('en-IN');
+}
+function esc(value){
+  return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function imageUrl(value){
+  const s=String(value||'').trim();
+  const match=s.match(/drive\.google\.com\/file\/d\/([^/]+)/i);
+  if(match)return 'https://drive.google.com/thumbnail?id='+encodeURIComponent(match[1])+'&sz=w800';
+  return s;
+}
+function itemOptions(item){
+  return Array.isArray(item.options)
+    ? item.options.filter(o=>o&&o.value).map(o=>esc(o.label||'Option')+': '+esc(o.value)).join(' · ')
+    : '';
+}
+function itemQty(item){
+  return Math.max(1,Number(item.qty)||1);
+}
+function subtotal(cart){
+  return cart.reduce((sum,item)=>sum+(Number(item.price)||0)*itemQty(item),0);
+}
+function renderCart(){
+  const app=document.getElementById('cartApp');
+  const cart=getCart();
+
+  if(!cart.length){
+    app.innerHTML='<div class="card empty"><h2>Your cart is empty</h2><div class="muted">Add a product to your cart and it will appear here.</div><a class="btn primary" href="index.html" style="max-width:250px;margin:20px auto 0">Continue Shopping</a></div>';
+    return;
+  }
+
+  const total=subtotal(cart);
+  const itemCount=cart.reduce((sum,item)=>sum+itemQty(item),0);
+
+  app.innerHTML='<div class="cart-layout">'+
+    '<section class="card cart-items">'+
+      cart.map((item,index)=>{
+        const image=item.image?'<img src="'+esc(imageUrl(item.image))+'" alt="'+esc(item.name||'Product')+'">':'';
+        return '<article class="cart-item">'+
+          '<div class="item-image">'+image+'</div>'+
+          '<div>'+
+            '<h2 class="item-name">'+esc(item.name||'Product')+'</h2>'+
+            '<div class="item-options">'+itemOptions(item)+'</div>'+
+            '<div class="qty">'+
+              '<button type="button" onclick="changeQuantity('+index+',-1)" aria-label="Decrease quantity">−</button>'+
+              '<input type="number" min="1" value="'+itemQty(item)+'" onchange="setQuantity('+index+',this.value)" aria-label="Quantity">'+
+              '<button type="button" onclick="changeQuantity('+index+',1)" aria-label="Increase quantity">+</button>'+
+            '</div>'+
+            '<button type="button" class="remove" onclick="removeItem('+index+')">Remove</button>'+
+          '</div>'+
+          '<div class="item-price">'+money((Number(item.price)||0)*itemQty(item))+'</div>'+
+        '</article>';
+      }).join('')+
+    '</section>'+
+    '<aside class="card summary">'+
+      '<h2>Order Summary</h2>'+
+      '<div class="summary-row"><span>Items</span><b>'+itemCount+'</b></div>'+
+      '<div class="summary-row"><span>Subtotal</span><b>'+money(total)+'</b></div>'+
+      '<div class="summary-row summary-total"><span>Total</span><b>'+money(total)+'</b></div>'+
+      '<a class="btn primary" href="checkout.html">Proceed to Checkout</a>'+
+      '<a class="btn" href="index.html">Continue Shopping</a>'+
+    '</aside>'+
+  '</div>';
+}
+function changeQuantity(index,difference){
+  const cart=getCart();
+  if(!cart[index])return;
+  cart[index].qty=Math.max(1,itemQty(cart[index])+difference);
+  saveCart(cart);
+  renderCart();
+}
+function setQuantity(index,value){
+  const cart=getCart();
+  if(!cart[index])return;
+  cart[index].qty=Math.max(1,Number(value)||1);
+  saveCart(cart);
+  renderCart();
+}
+function removeItem(index){
+  const cart=getCart();
+  cart.splice(index,1);
+  saveCart(cart);
+  renderCart();
+}
+renderCart();
+</script>
+</body>
+</html>
